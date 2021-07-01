@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -420,20 +421,20 @@ public class PassthroughStripe<M extends EntityMessage, R extends EntityResponse
     }
 
     @Override
-    public InvokeFuture<R> invoke() throws MessageCodecException {
-      byte[] result = null;
-      EntityException error = null;
+    public Future<R> invoke() throws MessageCodecException {
       try {
-        result = sendInvocation(currentId, eldestid, activeServerEntity, codec);
+        byte[] payload = sendInvocation(currentId, eldestid, activeServerEntity, codec);
+        monitor = null;
+        return completedFuture(codec.decodeResponse(payload));
       } catch (EntityException e) {
-        error = e;
+        CompletableFuture<R> failure = new CompletableFuture<>();
+        failure.completeExceptionally(e);
+        return failure;
       }
-      monitor = null;
-      return new ImmediateInvokeFuture<>(codec.decodeResponse(result), error);
     }
 
     @Override
-    public InvokeFuture<R> invokeWithTimeout(long time, TimeUnit units) throws InterruptedException, TimeoutException, MessageCodecException {
+    public Future<R> invokeWithTimeout(long time, TimeUnit units) throws MessageCodecException {
       return invoke();
     }
 

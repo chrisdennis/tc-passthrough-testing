@@ -22,12 +22,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import org.terracotta.entity.InvocationBuilder;
-import org.terracotta.entity.InvokeFuture;
 import org.terracotta.entity.EntityMessage;
 import org.terracotta.entity.EntityResponse;
 import org.terracotta.entity.MessageCodec;
 import org.terracotta.entity.MessageCodecException;
-import org.terracotta.exception.EntityException;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -132,47 +130,48 @@ public class PassthroughInvocationBuilder<M extends EntityMessage, R extends Ent
   }
 
   @Override
-  public InvokeFuture<R> invokeWithTimeout(long time, TimeUnit units) throws InterruptedException, TimeoutException, MessageCodecException {
+  public Future<R> invokeWithTimeout(long time, TimeUnit units) throws InterruptedException, TimeoutException, MessageCodecException {
     return invoke();
   }
 
   @Override
-  public InvokeFuture<R> invoke() throws MessageCodecException {
+  public Future<R> invoke() throws MessageCodecException {
     final PassthroughMessage message = PassthroughMessageCodec.createInvokeMessage(this.entityClassName, this.entityName, this.clientInstanceID, messageCodec.encodeMessage(this.request), this.shouldReplicate);
     final Future<byte[]> invokeFuture = this.connection.invokeActionAndWaitForAcks(message, 
         this.shouldWaitForSent, this.shouldWaitForReceived, this.shouldWaitForCompleted, 
         this.shouldWaitForRetired, this.shouldBlockGetUntilRetire, new PassthroughMonitor(messageCodec, monitor, executor));
-    return new InvokeFuture<R>() {
+    return new Future<R>() {
+      @Override
+      public boolean cancel(boolean mayInterruptIfRunning) {
+        return invokeFuture.cancel(mayInterruptIfRunning);
+      }
+
+      @Override
+      public boolean isCancelled() {
+        return invokeFuture.isCancelled();
+      }
+
       @Override
       public boolean isDone() {
         return invokeFuture.isDone();
       }
 
       @Override
-      public R get() throws InterruptedException, EntityException {
+      public R get() throws InterruptedException, ExecutionException {
         try {
           return messageCodec.decodeResponse(invokeFuture.get());
         } catch (MessageCodecException e) {
-          throw new EntityServerException(null, null, null, e);
-        } catch (ExecutionException e) {
-          throw (EntityException)e.getCause();
+          throw new ExecutionException(new EntityServerException(null, null, null, e));
         }
       }
 
       @Override
-      public R getWithTimeout(long timeout, TimeUnit unit) throws InterruptedException, EntityException, TimeoutException {
+      public R get(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException, ExecutionException {
         try {
           return messageCodec.decodeResponse(invokeFuture.get(timeout, unit));
         } catch (MessageCodecException e) {
-          throw new EntityServerException(null, null, null, e);
-        } catch (ExecutionException e) {
-          throw (EntityException)e.getCause();
+          throw new ExecutionException(new EntityServerException(null, null, null, e));
         }
-      }
-
-      @Override
-      public void interrupt() {
-        invokeFuture.cancel(true);
       }
     };
   }

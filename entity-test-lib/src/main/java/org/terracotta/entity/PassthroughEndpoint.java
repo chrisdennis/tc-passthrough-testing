@@ -22,13 +22,13 @@ import org.junit.Assert;
 import org.terracotta.exception.EntityException;
 import org.terracotta.exception.EntityServerException;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 
 /**
@@ -160,27 +160,27 @@ public class PassthroughEndpoint<M extends EntityMessage, R extends EntityRespon
     }
 
     @Override
-    public InvokeFuture<R> invoke() throws MessageCodecException {
+    public Future<R> invoke() throws MessageCodecException {
       // Note that the passthrough end-point wants to preserve the semantics of a single-threaded server, no matter how
       // complicated the caller is (since multiple threads often are used to simulate multiple clients or multiple threads
       // using one client).
       // We will synchronize on the entity instance so it will only ever see one caller at a time, no matter how many
       // end-points connect to it.
       synchronized (entity) {
-        byte[] result = null;
-        EntityException error = null;
         try {
-          result = sendInvocation(codec.encodeMessage(request), monitor);
+          byte[] payload = sendInvocation(codec.encodeMessage(request), monitor);
+          monitor = null;
+          return completedFuture(codec.decodeResponse(payload));
         } catch (EntityException ee) {
-          error = ee;
+          CompletableFuture<R> failure = new CompletableFuture<>();
+          failure.completeExceptionally(ee);
+          return failure;
         }
-        monitor = null;
-        return new ImmediateInvokeFuture<>(codec.decodeResponse(result), error);
       }
     }
 
     @Override
-    public InvokeFuture<R> invokeWithTimeout(long time, TimeUnit units) throws InterruptedException, TimeoutException, MessageCodecException {
+    public Future<R> invokeWithTimeout(long time, TimeUnit units) throws MessageCodecException {
       return invoke();
     }
 
